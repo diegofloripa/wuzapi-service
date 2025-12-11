@@ -1362,36 +1362,37 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 			}
 
 			// Only save if there's meaningful content (including delete messages)
-			if textContent != "" || mediaLink != "" || (messageType != "text" && messageType != "reaction") || messageType == "delete" {
-				// Serializar evt para JSON
-				evtJSON, err := json.Marshal(evt)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to marshal event to JSON")
-					evtJSON = []byte("{}")
-				}
-
-				err = mycli.s.saveMessageToHistory(
-					mycli.userID,
-					evt.Info.Chat.String(),
-					evt.Info.Sender.String(),
-					evt.Info.ID,
-					messageType,
-					textContent,
-					mediaLink,
-					replyToMessageID,
-					string(evtJSON),
-				)
-				if err != nil {
-					log.Error().Err(err).Msg("Failed to save message to history")
-				} else {
-					err = mycli.s.trimMessageHistory(mycli.userID, evt.Info.Chat.String(), historyLimit)
-					if err != nil {
-						log.Error().Err(err).Msg("Failed to trim message history")
-					}
-				}
-			} else {
-				log.Debug().Str("messageType", messageType).Str("messageID", evt.Info.ID).Msg("Skipping empty message from history")
+		if textContent != "" || mediaLink != "" || (messageType != "text" && messageType != "reaction") || messageType == "delete" {
+			// Serializar evt para JSON
+			evtJSON, err := json.Marshal(evt)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to marshal event to JSON")
+				evtJSON = []byte("{}")
 			}
+
+			err = mycli.s.saveMessageToHistory(
+				mycli.userID,
+				evt.Info.Chat.String(),
+				evt.Info.Sender.String(),
+				evt.Info.ID,
+				messageType,
+				textContent,
+				mediaLink,
+				replyToMessageID,
+				string(evtJSON),
+				evt.Info.Timestamp,
+			)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to save message to history")
+			} else {
+				err = mycli.s.trimMessageHistory(mycli.userID, evt.Info.Chat.String(), historyLimit)
+				if err != nil {
+					log.Error().Err(err).Msg("Failed to trim message history")
+				}
+			}
+		} else {
+			log.Debug().Str("messageType", messageType).Str("messageID", evt.Info.ID).Msg("Skipping empty message from history")
+		}
 		}
 
 	case *events.Receipt:
@@ -1661,27 +1662,28 @@ func (mycli *MyClient) myEventHandler(rawEvt interface{}) {
 							evtJSON = []byte("{}")
 						}
 
-						// Save message to history
-						// Only save if there's meaningful content
-						if textContent != "" || mediaLink != "" || (messageType != "text" && messageType != "reaction") {
-							err = mycli.s.saveMessageToHistory(
-								mycli.userID,
-								chatJID.String(),
-								senderJID,
-								messageID,
-								messageType,
-								textContent,
-								mediaLink,
-								quotedMessageID,
-								string(evtJSON),
-							)
-							if err != nil {
-								log.Error().Err(err).
-									Str("userID", mycli.userID).
-									Str("chatJID", chatJID.String()).
-									Str("messageID", messageID).
-									Msg("Failed to save HistorySync message to history")
-							} else {
+					// Save message to history
+					// Only save if there's meaningful content
+					if textContent != "" || mediaLink != "" || (messageType != "text" && messageType != "reaction") {
+						err = mycli.s.saveMessageToHistory(
+							mycli.userID,
+							chatJID.String(),
+							senderJID,
+							messageID,
+							messageType,
+							textContent,
+							mediaLink,
+							quotedMessageID,
+							string(evtJSON),
+							msgTimestamp,
+						)
+						if err != nil {
+							log.Error().Err(err).
+								Str("userID", mycli.userID).
+								Str("chatJID", chatJID.String()).
+								Str("messageID", messageID).
+								Msg("Failed to save HistorySync message to history")
+						} else {
 								savedCount++
 							}
 						}
