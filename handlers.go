@@ -5174,35 +5174,44 @@ func (s *server) DeleteUserComplete() http.HandlerFunc {
 			client.Disconnect()
 		}
 
-		// 2. Remove from DB
-		_, err = s.db.Exec("DELETE FROM users WHERE id = $1", id)
+	// 2. Remove message_history from DB
+	_, err = s.db.Exec("DELETE FROM message_history WHERE user_id = $1", id)
+	if err != nil {
+		log.Error().Err(err).Str("id", id).Msg("error removing message history")
+		// Continue anyway, don't fail the entire deletion
+	} else {
+		log.Info().Str("id", id).Msg("message history removed successfully")
+	}
+
+	// 3. Remove from DB
+	_, err = s.db.Exec("DELETE FROM users WHERE id = $1", id)
+	if err != nil {
+		s.respondWithJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"code":    http.StatusInternalServerError,
+			"error":   "database error",
+			"success": false,
+			"details": "failed to delete user from database",
+		})
+		return
+	}
+
+	// 4. Cleanup from memory
+	clientManager.DeleteWhatsmeowClient(id)
+	clientManager.DeleteMyClient(id)
+	clientManager.DeleteHTTPClient(id)
+	userinfocache.Delete(token)
+
+	// 5. Remove media files
+	userDirectory := filepath.Join(s.exPath, "files", id)
+	if stat, err := os.Stat(userDirectory); err == nil && stat.IsDir() {
+		log.Info().Str("dir", userDirectory).Msg("deleting media and history files from disk")
+		err = os.RemoveAll(userDirectory)
 		if err != nil {
-			s.respondWithJSON(w, http.StatusInternalServerError, map[string]interface{}{
-				"code":    http.StatusInternalServerError,
-				"error":   "database error",
-				"success": false,
-				"details": "failed to delete user from database",
-			})
-			return
+			log.Error().Err(err).Str("dir", userDirectory).Msg("error removing media directory")
 		}
+	}
 
-		// 3. Cleanup from memory
-		clientManager.DeleteWhatsmeowClient(id)
-		clientManager.DeleteMyClient(id)
-		clientManager.DeleteHTTPClient(id)
-		userinfocache.Delete(token)
-
-		// 4. Remove media files
-		userDirectory := filepath.Join(s.exPath, "files", id)
-		if stat, err := os.Stat(userDirectory); err == nil && stat.IsDir() {
-			log.Info().Str("dir", userDirectory).Msg("deleting media and history files from disk")
-			err = os.RemoveAll(userDirectory)
-			if err != nil {
-				log.Error().Err(err).Str("dir", userDirectory).Msg("error removing media directory")
-			}
-		}
-
-		// 5. Remove files from S3 (if enabled)
+	// 6. Remove files from S3 (if enabled)
 		var s3Enabled bool
 		err = s.db.QueryRow("SELECT s3_enabled FROM users WHERE id = $1", id).Scan(&s3Enabled)
 		if err == nil && s3Enabled {
@@ -5776,31 +5785,33 @@ func (s *server) GetHistory() http.HandlerFunc {
 			return
 		}
 
-		// If chat_jid is "index", return mapping of all instances to their chat_jids
-		if chatJID == "index" {
-			var query string
-			if s.db.DriverName() == "postgres" {
-				query = `
-					SELECT user_id, chat_jid, MAX(timestamp) as last_message_time
-					FROM message_history 
-					GROUP BY user_id, chat_jid 
-					ORDER BY user_id, last_message_time DESC`
-			} else { // sqlite
-				query = `
-					SELECT user_id, chat_jid, MAX(timestamp) as last_message_time
-					FROM message_history 
-					GROUP BY user_id, chat_jid 
-					ORDER BY user_id, last_message_time DESC`
-			}
+	// If chat_jid is "index", return mapping of all instances to their chat_jids
+	if chatJID == "index" {
+		var query string
+		if s.db.DriverName() == "postgres" {
+			query = `
+				SELECT user_id, chat_jid, MAX(timestamp) as last_message_time
+				FROM message_history 
+				WHERE user_id = $1
+				GROUP BY user_id, chat_jid 
+				ORDER BY last_message_time DESC`
+		} else { // sqlite
+			query = `
+				SELECT user_id, chat_jid, MAX(timestamp) as last_message_time
+				FROM message_history 
+				WHERE user_id = ?
+				GROUP BY user_id, chat_jid 
+				ORDER BY last_message_time DESC`
+		}
 
-			type ChatMapping struct {
-				UserID          string `json:"user_id" db:"user_id"`
-				ChatJID         string `json:"chat_jid" db:"chat_jid"`
-				LastMessageTime string `json:"last_message_time" db:"last_message_time"`
-			}
+		type ChatMapping struct {
+			UserID          string `json:"user_id" db:"user_id"`
+			ChatJID         string `json:"chat_jid" db:"chat_jid"`
+			LastMessageTime string `json:"last_message_time" db:"last_message_time"`
+		}
 
-			var mappings []ChatMapping
-			err := s.db.Select(&mappings, query)
+		var mappings []ChatMapping
+		err := s.db.Select(&mappings, query, txtid)
 			if err != nil {
 				s.Respond(w, r, http.StatusInternalServerError, fmt.Errorf("failed to get chat mappings: %w", err))
 				return
