@@ -6255,6 +6255,63 @@ func (s *server) GetUserLID() http.HandlerFunc {
 	}
 }
 
+// GetPhoneFromLID retrieves the Phone Number for a given LID
+func (s *server) GetPhoneFromLID() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		txtid := r.Context().Value("userinfo").(Values).Get("Id")
+
+		if clientManager.GetWhatsmeowClient(txtid) == nil {
+			s.Respond(w, r, http.StatusInternalServerError, errors.New("no session"))
+			return
+		}
+
+		// Get LID from URL parameter
+		vars := mux.Vars(r)
+		lidParam := vars["lid"]
+
+		if lidParam == "" {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("missing lid parameter"))
+			return
+		}
+
+		// Parse the LID
+		lid, ok := parseJID(lidParam)
+		if !ok {
+			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid lid format"))
+			return
+		}
+
+		client := clientManager.GetWhatsmeowClient(txtid)
+
+		// Get the phone number for this LID from the store
+		pn, err := client.Store.LIDs.GetPNForLID(context.Background(), lid)
+		if err != nil {
+			log.Error().Err(err).Str("lid", lidParam).Msg("Failed to get phone number for LID")
+			s.Respond(w, r, http.StatusNotFound, errors.New(fmt.Sprintf("Phone number not found for this LID: %v", err)))
+			return
+		}
+
+		if pn.IsEmpty() {
+			s.Respond(w, r, http.StatusNotFound, errors.New("Phone number not found for this LID"))
+			return
+		}
+
+		// Return the phone number
+		response := map[string]interface{}{
+			"lid":   lid.String(),
+			"jid":   pn.String(),
+			"phone": pn.User,
+		}
+
+		responseJson, err := json.Marshal(response)
+		if err != nil {
+			s.Respond(w, r, http.StatusInternalServerError, err)
+		} else {
+			s.Respond(w, r, http.StatusOK, string(responseJson))
+		}
+	}
+}
+
 // RequestUnavailableMessage requests a copy of a message that couldn't be decrypted
 func (s *server) RequestUnavailableMessage() http.HandlerFunc {
 

@@ -132,6 +132,7 @@ func (s *server) routes() {
 	s.router.Handle("/user/avatar", c.Then(s.GetAvatar())).Methods("POST")
 	s.router.Handle("/user/contacts", c.Then(s.GetContacts())).Methods("GET")
 	s.router.Handle("/user/lid/{jid}", c.Then(s.GetUserLID())).Methods("GET")
+	s.router.Handle("/user/phone/{lid}", c.Then(s.GetPhoneFromLID())).Methods("GET")
 
 	s.router.Handle("/chat/presence", c.Then(s.ChatPresence())).Methods("POST")
 	s.router.Handle("/chat/markread", c.Then(s.MarkRead())).Methods("POST")
