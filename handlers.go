@@ -6286,7 +6286,7 @@ func (s *server) GetPhoneFromLID() http.HandlerFunc {
 		lid = parsedLID
 	} else {
 		// No server part, assume it's a LID and add @lid
-		lid = types.NewJID(lidParam, types.LIDUserServer)
+		lid = types.NewJID(lidParam, "lid")
 	}
 
 		client := clientManager.GetWhatsmeowClient(txtid)
