@@ -6265,21 +6265,29 @@ func (s *server) GetPhoneFromLID() http.HandlerFunc {
 			return
 		}
 
-		// Get LID from URL parameter
-		vars := mux.Vars(r)
-		lidParam := vars["lid"]
+	// Get LID from URL parameter
+	vars := mux.Vars(r)
+	lidParam := vars["lid"]
 
-		if lidParam == "" {
-			s.Respond(w, r, http.StatusBadRequest, errors.New("missing lid parameter"))
-			return
-		}
+	if lidParam == "" {
+		s.Respond(w, r, http.StatusBadRequest, errors.New("missing lid parameter"))
+		return
+	}
 
-		// Parse the LID
-		lid, ok := parseJID(lidParam)
-		if !ok {
+	// Parse the LID - force @lid server if not present
+	var lid types.JID
+	if strings.Contains(lidParam, "@") {
+		// Already has server part, parse normally
+		parsedLID, err := types.ParseJID(lidParam)
+		if err != nil {
 			s.Respond(w, r, http.StatusBadRequest, errors.New("invalid lid format"))
 			return
 		}
+		lid = parsedLID
+	} else {
+		// No server part, assume it's a LID and add @lid
+		lid = types.NewJID(lidParam, types.LIDUserServer)
+	}
 
 		client := clientManager.GetWhatsmeowClient(txtid)
 
